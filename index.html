@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Study Packet Viewer</title>
+
+  <style>
+    body { font-family: sans-serif; margin: 22px; background: #f1f2f6; }
+    .content-section { padding: 16px; background: #fff; border-radius: 8px; box-shadow: 0 2px 6px #d2d4db55;}
+    .tab-bar { display: flex; margin-bottom: 15px; }
+    .tab-bar button { padding: 10px 22px; margin-right: 5px; background: #dee2ef; border: none; border-radius: 5px 5px 0 0; cursor: pointer; }
+    .tab-bar button.active { background: #fff; font-weight: bold; border-bottom: 2px solid #333; }
+
+    /* Flashcards */
+    .flashcard-box { display: flex; flex-wrap: wrap; gap: 1rem; }
+    .flashcard { background: #145; color: #fff; width: 320px; height: 180px; border-radius: 10px;
+                 perspective: 700px; cursor: pointer; }
+    .flashcard-inner { width: 100%; height: 100%; transition: transform .5s; transform-style: preserve-3d; }
+    .flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
+    .flashcard-front, .flashcard-back {
+      position: absolute; width: 100%; height: 100%; display: flex; align-items: center;
+      justify-content: center; backface-visibility: hidden; border-radius: 10px;
+      padding: 1em; text-align: center;
+    }
+    .flashcard-back { background: #fff; color: #222; transform: rotateY(180deg); }
+
+    /* Quiz */
+    .quiz-question { margin-bottom: 1.4em; }
+    .quiz-option { margin: 0.4em 0; display: block; }
+    .quiz-feedback-correct { color: green; }
+    .quiz-feedback-wrong { color: #be2828; }
+    .quiz-explanation { color: #1a4377; font-size: .94em; margin-top: .3em; }
+
+    /* General typography */
+    .h1 { font-size: 1.9em; font-weight: bold; margin: 0.6em 0; }
+    .h2 { font-size: 1.4em; font-weight: bold; margin: 0.6em 0; }
+    .h3 { font-size: 1.15em; font-weight: bold; margin: 0.5em 0; }
+
+    table { border-collapse: collapse; width: 100%; margin: 1.2em 0; }
+    th, td { border: 1px solid #ccd; padding: 8px; }
+    th { background: #f5f6fd; }
+
+    .upload-box { background:#fff; padding:1em; border-radius:8px; margin-bottom:20px; box-shadow:0 2px 5px #ccc4; }
+    .upload-box label { font-weight:bold; }
+  </style>
+</head>
+
+<body>
+
+<h1>Study Packet Viewer</h1>
+
+<!-- Upload Section -->
+<div class="upload-box">
+  <p><b>Upload JSON Files:</b></p>
+
+  <div><label>Quiz JSON: </label><input type="file" id="quizFile"></div><br>
+  <div><label>Flashcard JSON: </label><input type="file" id="flashFile"></div><br>
+  <div><label>Lesson JSON: </label><input type="file" id="lessonFile"></div><br>
+  <div><label>Introduction JSON: </label><input type="file" id="introFile"></div>
+</div>
+
+<!-- Tab Navigation -->
+<div class="tab-bar">
+  <button data-tab="Introduction">Introduction</button>
+  <button data-tab="Lesson">Lesson</button>
+  <button data-tab="Flashcard">Flashcards</button>
+  <button data-tab="Quiz">Quiz</button>
+</div>
+
+<div id="app-root" class="content-section"></div>
+
+<script>
+// ===================================================================
+// DYNAMIC DATA (USER UPLOADS)
+// ===================================================================
+const DATA = {
+  Quiz: null,
+  Flashcard: null,
+  Lesson: null,
+  Introduction: null
+};
+
+// File input handlers
+function setupUpload(id, key) {
+  document.getElementById(id).addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const txt = await file.text();
+      DATA[key] = JSON.parse(txt);
+      alert(`${key} loaded successfully.`);
+      renderActiveTab();
+    } catch (err) {
+      alert(`Invalid JSON in ${key}`);
+    }
+  });
+}
+
+setupUpload("quizFile", "Quiz");
+setupUpload("flashFile", "Flashcard");
+setupUpload("lessonFile", "Lesson");
+setupUpload("introFile", "Introduction");
+
+
+// ===================================================================
+// Utility DOM builder
+// ===================================================================
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  if (attrs) for (let k in attrs) {
+    if (k === "style") Object.assign(node.style, attrs[k]);
+    else if (k.startsWith("on")) node[k.toLowerCase()] = attrs[k];
+    else node.setAttribute(k, attrs[k]);
+  }
+  children.flat().forEach(c => {
+    if (typeof c === "string") node.appendChild(document.createTextNode(c));
+    else if (c) node.appendChild(c);
+  });
+  return node;
+}
+
+// ===================================================================
+// RICH TEXT RENDERER (supports heading, paragraphs, lists, table)
+// ===================================================================
+function renderRich(nodes) {
+  if (!nodes) return [];
+  return nodes.map(n => {
+    if (n.text !== undefined) return document.createTextNode(n.text);
+
+    if (n.type === "paragraph") return el("p", null, renderRich(n.children));
+    if (["h1","h2","h3"].includes(n.type)) return el("div", {class:n.type}, renderRich(n.children));
+
+    if (n.type === "unordered-list")
+      return el("ul", null, ...(n.children||[]).map(li => el("li", null, renderRich(li.children))));
+
+    if (n.type === "ordered-list")
+      return el("ol", null, ...(n.children||[]).map(li => el("li", null, renderRich(li.children))));
+
+    if (n.type === "table") return renderTable(n.children);
+    return document.createTextNode("");
+  });
+}
+
+function renderTable(rows) {
+  let thead = "", tbody = "";
+  rows.forEach(r => {
+    if (r.type === "table-head")
+      thead = el("thead", null,
+        ...r.children.map(row => el("tr", null,
+          ...row.children.map(c => el("th", null, renderRich(c.children)))
+        ))
+      );
+    if (r.type === "table-body")
+      tbody = el("tbody", null,
+        ...r.children.map(row => el("tr", null,
+          ...row.children.map(c => el("td", null, renderRich(c.children)))
+        ))
+      );
+  });
+  return el("table", null, thead, tbody);
+}
+
+
+// ===================================================================
+// COMPONENTS: FLASHCARDS / QUIZ / LESSON / INTRO
+// ===================================================================
+
+function flashcardComponent(data) {
+  if (!data) return "Upload Flashcard JSON first.";
+
+  const deck = data.contents.find(c => c.type === "flash-cards");
+  if (!deck) return "No flashcards found.";
+
+  let state = new Set();
+
+  function render() {
+    return el("div", null,
+      el("h2", null, data.title || "Flashcards"),
+      el("div", {class:"flashcard-box"}, deck.children.map((card, i) => {
+        const flipped = state.has(i);
+        return el("div", {
+          class: "flashcard" + (flipped ? " flipped" : ""),
+          onClick: () => { flipped ? state.delete(i) : state.add(i); rerender(); }
+        },
+        el("div", {class:"flashcard-inner"},
+          el("div", {class:"flashcard-front"}, renderFlash(card, "flash-card-front")),
+          el("div", {class:"flashcard-back"}, renderFlash(card, "flash-card-back"))
+        ));
+      }))
+    );
+  }
+
+  function renderFlash(card, type) {
+    const side = card.children.find(c => c.type === type);
+    return side ? renderRich(side.children) : "(none)";
+  }
+
+  let root = render();
+  function rerender() { root.replaceWith(root = render()); }
+  return root;
+}
+
+
+function quizComponent(data) {
+  if (!data) return "Upload Quiz JSON first.";
+
+  const quiz = data.contents.find(c => c.type === "quiz");
+  let state = {};
+
+  function render() {
+    return el("div", null,
+      el("div",{class:"h1"}, data.title || "Quiz"),
+      ...quiz.children.map((q, i) => renderQuestion(q, i))
+    );
+  }
+
+  function renderQuestion(q, idx) {
+    const qid = q.id;
+    const user = state[qid]?.answer;
+    const reveal = state[qid]?.revealed;
+
+    const prompt = q.children.find(c=>c.type==="paragraph");
+    const options = q.children.filter(c=>c.type==="data-field");
+    const explanation = q.children.find(c=>c.type==="quiz-explanation");
+    const correct = q["quiz:correctAnswer"];
+
+    return el("div", {class:"quiz-question"},
+      el("div",{class:"h2"}, renderRich(prompt?.children)),
+      options.map(opt =>
+        el("label",{class:"quiz-option"},
+          el("input",{
+            type:"radio",
+            name:qid,
+            value:opt.value,
+            checked:user === opt.value,
+            disabled: reveal,
+            onChange:(e)=>{ state[qid]={answer:e.target.value, revealed:false}; rerender(); }
+          }),
+          renderRich(opt.children[0].children)
+        )
+      ),
+      !reveal ?
+        el("button",{onClick:()=>{ state[qid]={...state[qid], revealed:true}; rerender(); }},
+          user ? "Check" : "Select an option"
+        )
+      :
+        (user === correct
+          ? el("div",{class:"quiz-feedback-correct"},"✔ Correct!")
+          : el("div",{class:"quiz-feedback-wrong"},"✘ Wrong. Correct: "+correct.toUpperCase())
+        ),
+
+      reveal && explanation
+        ? el("div",{class:"quiz-explanation"}, "Explanation: ", renderRich(explanation.children))
+        : "",
+
+      el("hr")
+    );
+  }
+
+  let root = render();
+  function rerender() { root.replaceWith(root = render()); }
+  return root;
+}
+
+
+function lessonComponent(data) {
+  if (!data) return "Upload Lesson JSON first.";
+  return el("div", null, renderRich(data.contents));
+}
+
+function introComponent(data) {
+  if (!data) return "Upload Introduction JSON first.";
+  return el("div", null, renderRich(data.contents));
+}
+
+
+// ===================================================================
+// TAB SWITCHING
+// ===================================================================
+let activeTab = "Introduction";
+
+document.querySelectorAll(".tab-bar button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    activeTab = btn.dataset.tab;
+    renderActiveTab();
+  });
+});
+
+function renderActiveTab() {
+  document.querySelectorAll(".tab-bar button").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.tab === activeTab)
+  );
+
+  const root = document.getElementById("app-root");
+  root.innerHTML = "";
+
+  const data = DATA[activeTab];
+  let comp = null;
+
+  if (activeTab === "Flashcard") comp = flashcardComponent(data);
+  if (activeTab === "Quiz") comp = quizComponent(data);
+  if (activeTab === "Lesson") comp = lessonComponent(data);
+  if (activeTab === "Introduction") comp = introComponent(data);
+
+  root.append(comp);
+}
+
+renderActiveTab();
+</script>
+
+</body>
+</html>
