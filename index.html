@@ -151,7 +151,11 @@ function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
   if (attrs) for (let k in attrs) {
     if (k === "style") Object.assign(node.style, attrs[k]);
-    else if (k.startsWith("on")) node[k.toLowerCase()] = attrs[k];
+    else if (k.startsWith("on")) node.addEventListener(k.substring(2).toLowerCase(), attrs[k]);
+    else if (k === "checked" || k === "disabled") {
+      // Handle boolean properties correctly
+      if (attrs[k]) node[k] = true;
+    }
     else node.setAttribute(k, attrs[k]);
   }
   children.flat().forEach(c => {
