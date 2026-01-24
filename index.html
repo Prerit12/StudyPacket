@@ -4,6 +4,20 @@
   <meta charset="UTF-8" />
   <title>Study Packet Viewer</title>
 
+  <!-- MathJax for LaTeX rendering -->
+  <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['\\(', '\\)']],
+        displayMath: [['\\[', '\\]']]
+      },
+      svg: {
+        fontCache: 'global'
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+
   <style>
     body { font-family: sans-serif; margin: 22px; background: #f1f2f6; }
     .content-section { padding: 16px; background: #fff; border-radius: 8px; box-shadow: 0 2px 6px #d2d4db55;}
@@ -11,6 +25,14 @@
     .tab-bar button { padding: 10px 22px; margin-right: 5px; background: #dee2ef; border: none; border-radius: 5px 5px 0 0; cursor: pointer; }
     .tab-bar button.active { background: #fff; font-weight: bold; border-bottom: 2px solid #333; }
 
+    /* Code and inline elements */
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.9em; }
+    pre { background: #f5f5f5; padding: 12px; border-radius: 4px; overflow: auto; border: 1px solid #ddd; }
+    pre code { background: none; padding: 0; }
+    strong { font-weight: bold; }
+    
+    /* Math styling */
+    .math-formula { color: #1a4377; }
     
     /* Flashcards – Auto height, non-cropping */
     .flashcard-box {
@@ -171,7 +193,49 @@ function el(tag, attrs, ...children) {
 function renderRich(nodes) {
   if (!nodes) return [];
   return nodes.map(n => {
-    if (n.text !== undefined) return document.createTextNode(n.text);
+    // Handle plain text strings
+    if (typeof n === "string") {
+      return document.createTextNode(n);
+    }
+
+    // Handle null/undefined
+    if (!n) return document.createTextNode("");
+
+    // Handle standalone text objects (direct content items without type or children)
+    // Example: {"text": "A. Independent..."} at root of contents array
+    if (n.text !== undefined && !n.type && n.children === undefined) {
+      // If it has formatting, wrap accordingly  
+      if (n.bold) {
+        return el("p", {style:{fontWeight:"bold"}}, n.text);
+      } else if (n.code) {
+        return el("p", null, el("code", null, n.text));
+      } else {
+        // Regular standalone text - just return as text node
+        return document.createTextNode(n.text);
+      }
+    }
+
+    // Handle inline text nodes (inside children arrays)
+    if (n.text !== undefined && !n.type) {
+      if (n.bold) {
+        return el("strong", null, n.text);
+      } else if (n.code) {
+        return el("code", null, n.text);
+      } else {
+        return document.createTextNode(n.text);
+      }
+    }
+
+    // Handle math (LaTeX)
+    if (n.type === "math") {
+      return renderMath(n);
+    }
+
+    // Handle pre-formatted code blocks
+    if (n.type === "pre") {
+      return el("pre", {style:{background:"#f5f5f5", padding:"12px", borderRadius:"4px", overflow:"auto"}}, 
+        renderRich(n.children));
+    }
 
     if (n.type === "paragraph") return el("p", null, renderRich(n.children));
     if (["h1","h2","h3"].includes(n.type)) return el("div", {class:n.type}, renderRich(n.children));
@@ -183,8 +247,50 @@ function renderRich(nodes) {
       return el("ol", null, ...(n.children||[]).map(li => el("li", null, renderRich(li.children))));
 
     if (n.type === "table") return renderTable(n.children);
+    
+    // Handle list-item type separately (for nested structure)
+    if (n.type === "list-item") return renderRich(n.children);
+    
     return document.createTextNode("");
   });
+}
+
+function renderMath(node) {
+  const latex = node.text || "";
+  const isInline = node.inline !== false;
+  
+  // Create a span/div to hold the math
+  const container = el(isInline ? "span" : "div", {
+    class: "math-formula",
+    style: isInline ? {display:"inline", fontStyle:"italic", margin:"0 3px"} : {display:"block", margin:"1em 0", textAlign:"center", fontStyle:"italic"}
+  });
+  
+  // Try to use MathJax or KaTeX if available, otherwise show raw LaTeX
+  if (typeof MathJax !== 'undefined') {
+    container.textContent = isInline ? `\\(${latex}\\)` : `\\[${latex}\\]`;
+    if (MathJax.typesetPromise) {
+      MathJax.typesetPromise([container]).catch(err => console.error('MathJax error:', err));
+    }
+  } else if (typeof katex !== 'undefined') {
+    try {
+      katex.render(latex, container, {displayMode: !isInline});
+    } catch (err) {
+      container.textContent = latex;
+    }
+  } else {
+    // Fallback: show raw LaTeX in a readable format
+    container.textContent = isInline ? latex : latex;
+    container.style.fontFamily = "Georgia, serif";
+    if (!isInline) {
+      container.style.fontSize = "1.1em";
+      container.style.padding = "10px";
+      container.style.background = "#f9f9f9";
+      container.style.border = "1px solid #e0e0e0";
+      container.style.borderRadius = "4px";
+    }
+  }
+  
+  return container;
 }
 
 function renderTable(rows) {
@@ -311,12 +417,26 @@ function quizComponent(data) {
 
 function lessonComponent(data) {
   if (!data) return "Upload Lesson JSON first.";
-  return el("div", null, renderRich(data.contents));
+  const wrapper = el("div", null, renderRich(data.contents));
+  // Trigger MathJax rendering after content is added to DOM
+  setTimeout(() => {
+    if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+      MathJax.typesetPromise([wrapper]).catch(err => console.error('MathJax error:', err));
+    }
+  }, 100);
+  return wrapper;
 }
 
 function introComponent(data) {
   if (!data) return "Upload Introduction JSON first.";
-  return el("div", null, renderRich(data.contents));
+  const wrapper = el("div", null, renderRich(data.contents));
+  // Trigger MathJax rendering after content is added to DOM
+  setTimeout(() => {
+    if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+      MathJax.typesetPromise([wrapper]).catch(err => console.error('MathJax error:', err));
+    }
+  }, 100);
+  return wrapper;
 }
 
 
