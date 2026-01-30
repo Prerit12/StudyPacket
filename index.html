@@ -201,22 +201,9 @@ function renderRich(nodes) {
     // Handle null/undefined
     if (!n) return document.createTextNode("");
 
-    // Handle standalone text objects (direct content items without type or children)
-    // Example: {"text": "A. Independent..."} at root of contents array
-    if (n.text !== undefined && !n.type && n.children === undefined) {
-      // If it has formatting, wrap accordingly  
-      if (n.bold) {
-        return el("p", {style:{fontWeight:"bold"}}, n.text);
-      } else if (n.code) {
-        return el("p", null, el("code", null, n.text));
-      } else {
-        // Regular standalone text - just return as text node
-        return document.createTextNode(n.text);
-      }
-    }
-
-    // Handle inline text nodes (inside children arrays)
+    // Handle text nodes with formatting - keep them inline
     if (n.text !== undefined && !n.type) {
+      // Build text with inline formatting
       if (n.bold) {
         return el("strong", null, n.text);
       } else if (n.code) {
