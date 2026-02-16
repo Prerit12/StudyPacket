@@ -69,9 +69,20 @@
       border-radius: 10px;
       backface-visibility: hidden;
 
-      /* allow content to expand naturally */
+      /* allow content to expand naturally, break at word boundaries */
       display: block;
       word-wrap: break-word;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+
+    /* Keep math inline in cards so text flows naturally and words don't split */
+    .flashcard-front .math-formula,
+    .flashcard-back .math-formula,
+    .flashcard [class^="mjx-"],
+    .flashcard [class*=" mjx-"] {
+      display: inline !important;
+      vertical-align: baseline;
     }
 
     /* front style */
@@ -338,7 +349,14 @@ function flashcardComponent(data) {
 
   function renderFlash(card, type) {
     const side = card.children.find(c => c.type === type);
-    return side ? renderRich(side.children) : "(none)";
+    if (!side) return "(none)";
+    const kids = side.children || [];
+    // If front/back has a single heading or paragraph, render its children directly
+    // so content flows inline (avoids block wrapper that causes bad line breaks).
+    if (kids.length === 1 && kids[0].children && ["h1","h2","h3","h4","h5","h6","paragraph"].includes(kids[0].type)) {
+      return renderRich(kids[0].children);
+    }
+    return renderRich(kids);
   }
 
   function scheduleMathJax(container) {
