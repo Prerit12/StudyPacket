@@ -225,7 +225,7 @@ function renderRich(nodes) {
     }
 
     if (n.type === "paragraph") return el("p", null, renderRich(n.children));
-    if (["h1","h2","h3"].includes(n.type)) return el("div", {class:n.type}, renderRich(n.children));
+    if (["h1","h2","h3","h4","h5","h6"].includes(n.type)) return el("div", {class:n.type}, renderRich(n.children));
 
     if (n.type === "unordered-list")
       return el("ul", null, ...(n.children||[]).map(li => el("li", null, renderRich(li.children))));
@@ -243,7 +243,8 @@ function renderRich(nodes) {
 }
 
 function renderMath(node) {
-  const latex = node.text || "";
+  // Support both "text" and "equation" (NoteDoc uses "equation" for LaTeX)
+  const latex = node.equation || node.text || "";
   const isInline = node.inline !== false;
   
   // Create a span/div to hold the math
@@ -334,8 +335,20 @@ function flashcardComponent(data) {
     return side ? renderRich(side.children) : "(none)";
   }
 
+  function scheduleMathJax(container) {
+    setTimeout(() => {
+      if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+        MathJax.typesetPromise([container]).catch(err => console.error('MathJax error:', err));
+      }
+    }, 100);
+  }
+
   let root = render();
-  function rerender() { root.replaceWith(root = render()); }
+  function rerender() {
+    root.replaceWith(root = render());
+    scheduleMathJax(root);
+  }
+  scheduleMathJax(root);
   return root;
 }
 
@@ -375,7 +388,7 @@ function quizComponent(data) {
             disabled: reveal,
             onChange:(e)=>{ state[qid]={answer:e.target.value, revealed:false}; rerender(); }
           }),
-          renderRich(opt.children[0].children)
+          renderRich(opt.children?.[0]?.children || [])
         )
       ),
       !reveal ?
@@ -396,8 +409,20 @@ function quizComponent(data) {
     );
   }
 
+  function scheduleMathJax(container) {
+    setTimeout(() => {
+      if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+        MathJax.typesetPromise([container]).catch(err => console.error('MathJax error:', err));
+      }
+    }, 100);
+  }
+
   let root = render();
-  function rerender() { root.replaceWith(root = render()); }
+  function rerender() {
+    root.replaceWith(root = render());
+    scheduleMathJax(root);
+  }
+  scheduleMathJax(root);
   return root;
 }
 
