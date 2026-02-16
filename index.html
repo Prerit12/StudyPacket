@@ -244,30 +244,36 @@ function renderRich(nodes) {
 
 function renderMath(node) {
   // Support both "text" and "equation" (NoteDoc uses "equation" for LaTeX)
-  const latex = node.equation || node.text || "";
+  let latex = node.equation || node.text || "";
   const isInline = node.inline !== false;
-  
+
+  // Fix "Missing open brace for subscript": LaTeX treats _ as subscript, so placeholders
+  // like _____ are invalid. Escape runs of 2+ underscores so they display as literal underscores.
+  latex = latex.replace(/_{2,}/g, function(m) { return '\\_'.repeat(m.length); });
+
   // Create a span/div to hold the math
   const container = el(isInline ? "span" : "div", {
     class: "math-formula",
     style: isInline ? {display:"inline", fontStyle:"italic", margin:"0 3px"} : {display:"block", margin:"1em 0", textAlign:"center", fontStyle:"italic"}
   });
-  
-  // Try to use MathJax or KaTeX if available, otherwise show raw LaTeX
+
+  // Try to use MathJax or KaTeX if available
   if (typeof MathJax !== 'undefined') {
-    container.textContent = isInline ? `\\(${latex}\\)` : `\\[${latex}\\]`;
+    container.textContent = isInline ? '\\( ' + latex + ' \\)' : '\\[ ' + latex + ' \\]';
     if (MathJax.typesetPromise) {
-      MathJax.typesetPromise([container]).catch(err => console.error('MathJax error:', err));
+      MathJax.typesetPromise([container]).catch(function(err) {
+        console.error('MathJax error:', err);
+        container.textContent = latex;
+      });
     }
   } else if (typeof katex !== 'undefined') {
     try {
-      katex.render(latex, container, {displayMode: !isInline});
+      katex.render(latex, container, {displayMode: !isInline, throwOnError: false});
     } catch (err) {
       container.textContent = latex;
     }
   } else {
-    // Fallback: show raw LaTeX in a readable format
-    container.textContent = isInline ? latex : latex;
+    container.textContent = latex;
     container.style.fontFamily = "Georgia, serif";
     if (!isInline) {
       container.style.fontSize = "1.1em";
@@ -277,7 +283,7 @@ function renderMath(node) {
       container.style.borderRadius = "4px";
     }
   }
-  
+
   return container;
 }
 
