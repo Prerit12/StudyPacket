@@ -395,13 +395,14 @@ function quizComponent(data) {
     const user = state[qid]?.answer;
     const reveal = state[qid]?.revealed;
 
-    const prompt = q.children.find(c=>c.type==="paragraph");
+    // Support both "paragraph" and "instructions" (NoteDoc uses "instructions" for question text)
+    const prompt = q.children.find(c=>c.type==="paragraph" || c.type==="instructions");
     const options = q.children.filter(c=>c.type==="data-field");
     const explanation = q.children.find(c=>c.type==="quiz-explanation");
     const correct = q["quiz:correctAnswer"];
 
     return el("div", {class:"quiz-question"},
-      el("div",{class:"h2"}, renderRich(prompt?.children)),
+      el("div",{class:"h2"}, renderRich(prompt?.children || [])),
       options.map(opt =>
         el("label",{class:"quiz-option"},
           el("input",{
